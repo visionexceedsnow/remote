@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VXN Remote</title>
+<style>
+  :root{--bg:#0b0d12;--card:#141823;--line:#242b3b;--text:#e8ecf4;--muted:#8b95a9;--accent:#5b8cff;--good:#3ddc97;--bad:#ff5b6e}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh}
+  header{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--line)}
+  .brand{font-weight:700;letter-spacing:.5px}
+  .brand span{color:var(--accent)}
+  #status{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  #dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}
+  #dot.on{background:var(--good)} #dot.err{background:var(--bad)}
+  main{max-width:900px;margin:0 auto;padding:32px 20px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media(max-width:700px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px}
+  h2{margin:0 0 6px;font-size:18px} p.sub{margin:0 0 18px;color:var(--muted);font-size:14px;line-height:1.5}
+  button{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:12px 18px;font-size:15px;font-weight:600;cursor:pointer}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
+  button.danger{background:var(--bad)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  input{width:100%;background:#0e121b;border:1px solid var(--line);color:var(--text);border-radius:10px;padding:12px 14px;font-size:20px;letter-spacing:4px;text-transform:uppercase;text-align:center;margin-bottom:12px}
+  .code{font-size:38px;font-weight:800;letter-spacing:8px;text-align:center;margin:10px 0;color:var(--accent);user-select:all}
+  .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  .hidden{display:none!important}
+  #stage{position:fixed;inset:0;background:#000;display:flex;flex-direction:column;z-index:10}
+  #bar{display:flex;gap:10px;align-items:center;padding:10px 14px;background:#0b0d12cc;border-bottom:1px solid var(--line)}
+  #bar .grow{flex:1;color:var(--muted);font-size:13px}
+  #remote{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
+  #chat{position:fixed;right:14px;bottom:14px;width:280px;max-height:320px;background:var(--card);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;z-index:20}
+  #log{padding:10px;overflow:auto;font-size:13px;flex:1;min-height:80px}
+  #log div{margin-bottom:6px} #log .me{color:var(--accent)}
+  #chat form{display:flex;border-top:1px solid var(--line)}
+  #chat input{margin:0;border:0;border-radius:0 0 0 12px;font-size:14px;letter-spacing:0;text-transform:none;text-align:left}
+  #chat button{border-radius:0 0 12px 0;padding:8px 12px}
+  #modal{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;z-index:50}
+  #modal .card{max-width:360px;text-align:center}
+  .err{color:var(--bad);font-size:14px;margin-top:10px;min-height:18px}
+  small{color:var(--muted)}
+  #localPreview{width:100%;border-radius:10px;margin-top:14px;background:#000;max-height:180px}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">VXN <span>Remote</span></div>
+  <div id="status"><div id="dot"></div><span id="statusText">Starting…</span></div>
+</header>
+
+<main id="home">
+  <div class="grid">
+    <section class="card" id="hostCard">
+      <h2>Share my screen</h2>
+      <p class="sub">Start a session, send the code to the person who needs to see your screen, and approve them when they connect.</p>
+      <div id="hostIdle" class="row"><button id="shareBtn">Start sharing</button></div>
+      <div id="hostLive" class="hidden">
+        <div class="sub" style="text-align:center">Your access code</div>
+        <div class="code" id="codeOut">------</div>
+        <div class="row">
+          <button class="ghost" id="copyBtn">Copy code</button>
+          <button class="danger" id="stopBtn">Stop sharing</button>
+        </div>
+        <video id="localPreview" autoplay muted playsinline></video>
+      </div>
+      <div class="err" id="hostErr"></div>
+    </section>
+
+    <section class="card">
+      <h2>Connect to a screen</h2>
+      <p class="sub">Enter the code shared with you. The host must approve before you see anything.</p>
+      <input id="codeIn" maxlength="8" placeholder="CODE" autocomplete="off">
+      <div class="row"><button id="connectBtn">Connect</button></div>
+      <div class="err" id="viewErr"></div>
+    </section>
+  </div>
+  <p style="text-align:center;margin-top:24px"><small>View-only screen sharing. Uses peer-to-peer WebRTC; Firebase is used only to connect the two sides.</small></p>
+</main>
+
+<div id="stage" class="hidden">
+  <div id="bar">
+    <div class="grow" id="stageInfo">Connected</div>
+    <button class="ghost" id="fsBtn">Fullscreen</button>
+    <button class="ghost" id="chatBtn">Chat</button>
+    <button class="danger" id="leaveBtn">Disconnect</button>
+  </div>
+  <video id="remote" autoplay playsinline></video>
+</div>
+
+<div id="chat" class="hidden">
+  <div id="log"></div>
+  <form id="chatForm"><input id="chatIn" placeholder="Message…" autocomplete="off"><button>Send</button></form>
+</div>
+
+<div id="modal" class="hidden">
+  <div class="card">
+    <h2>Someone wants to view your screen</h2>
+    <p class="sub">Only accept if you gave this code to them.</p>
+    <div class="row"><button id="acceptBtn">Accept</button><button class="danger" id="denyBtn">Deny</button></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot, collection, addDoc, getDocs, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+/* ===== 1. PASTE YOUR FIREBASE CONFIG HERE ===== */
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  appId: "YOUR_APP_ID"
+};
+/* ============================================== */
+
+const ICE = { iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }] };
+const $ = id => document.getElementById(id);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+let uid = null, pc = null, stream = null, sessionRef = null, role = null, chatCh = null, unsubs = [];
+
+function setStatus(t, k){ $("statusText").textContent = t; $("dot").className = k || ""; }
+function makeCode(){
+  const a = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789", r = crypto.getRandomValues(new Uint8Array(8));
+  return [...r].map(n => a[n % a.length]).join("");
+}
+
+try { uid = (await signInAnonymously(auth)).user.uid; setStatus("Ready", "on"); }
+catch(e){ setStatus("Firebase error — check config / Anonymous auth", "err"); console.error(e); }
+
+/* ---------- shared ---------- */
+function newPC(){
+  pc = new RTCPeerConnection(ICE);
+  pc.onconnectionstatechange = () => {
+    const s = pc.connectionState;
+    if (s === "connected") setStatus("Connected (peer-to-peer)", "on");
+    if (s === "failed") { setStatus("Connection failed (network may need a TURN server)", "err"); }
+    if (s === "disconnected" || s === "closed") setStatus("Disconnected", "err");
+  };
+  return pc;
+}
+function wireChat(ch){
+  chatCh = ch;
+  ch.onmessage = e => addLog("Them", e.data);
+  ch.onopen = () => addLog("", "— chat ready —");
+}
+function addLog(who, text){
+  const d = document.createElement("div");
+  if (who === "Me") d.className = "me";
+  d.textContent = (who ? who + ": " : "") + text;
+  $("log").appendChild(d); $("log").scrollTop = 1e9;
+}
+$("chatForm").onsubmit = e => {
+  e.preventDefault();
+  const v = $("chatIn").value.trim();
+  if (!v || !chatCh || chatCh.readyState !== "open") return;
+  chatCh.send(v); addLog("Me", v); $("chatIn").value = "";
+};
+async function cleanup(deleteSession){
+  unsubs.forEach(u => u()); unsubs = [];
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  if (pc) pc.close();
+  if (deleteSession && sessionRef) {
+    try {
+      for (const sub of ["hostCandidates","viewerCandidates"]) {
+        const snap = await getDocs(collection(sessionRef, sub));
+        await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+      }
+      await deleteDoc(sessionRef);
+    } catch(e){ console.warn(e); }
+  }
+  pc = stream = sessionRef = chatCh = role = null;
+  $("stage").classList.add("hidden"); $("chat").classList.add("hidden"); $("home").classList.remove("hidden");
+  $("hostIdle").classList.remove("hidden"); $("hostLive").classList.add("hidden");
+  $("remote").srcObject = null; $("localPreview").srcObject = null; $("log").innerHTML = "";
+  setStatus("Ready", "on");
+}
+
+/* ---------- HOST ---------- */
+$("shareBtn").onclick = async () => {
+  $("hostErr").textContent = "";
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
+  } catch(e){ $("hostErr").textContent = "Screen share was cancelled or blocked."; return; }
+  role = "host";
+  const code = makeCode();
+  sessionRef = doc(db, "sessions", code);
+  newPC();
+  stream.getTracks().forEach(t => pc.addTrack(t, stream));
+  stream.getVideoTracks()[0].onended = () => cleanup(true);
+  wireChat(pc.createDataChannel("chat"));
+
+  pc.onicecandidate = e => { if (e.candidate) addDoc(collection(sessionRef, "hostCandidates"), e.candidate.toJSON()); };
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await setDoc(sessionRef, { hostUid: uid, offer: { type: offer.type, sdp: offer.sdp }, createdAt: serverTimestamp() });
+
+  $("codeOut").textContent = code;
+  $("localPreview").srcObject = stream;
+  $("hostIdle").classList.add("hidden"); $("hostLive").classList.remove("hidden");
+  $("chat").classList.remove("hidden");
+  setStatus("Waiting for a viewer…", "on");
+
+  let remoteSet = false, pendingAnswer = null; const queued = [];
+  unsubs.push(onSnapshot(sessionRef, snap => {
+    const d = snap.data();
+    if (d && d.answer && !remoteSet && !pendingAnswer) {
+      pendingAnswer = d.answer;
+      $("modal").classList.remove("hidden");
+    }
+  }));
+  $("acceptBtn").onclick = async () => {
+    $("modal").classList.add("hidden");
+    await pc.setRemoteDescription(pendingAnswer);
+    remoteSet = true;
+    for (const c of queued) await pc.addIceCandidate(c);
+    setStatus("Connecting…", "on");
+  };
+  $("denyBtn").onclick = () => { $("modal").classList.add("hidden"); cleanup(true); };
+  unsubs.push(onSnapshot(collection(sessionRef, "viewerCandidates"), snap => {
+    snap.docChanges().forEach(async ch => {
+      if (ch.type !== "added") return;
+      const c = new RTCIceCandidate(ch.doc.data());
+      remoteSet ? pc.addIceCandidate(c) : queued.push(c);
+    });
+  }));
+};
+$("copyBtn").onclick = () => navigator.clipboard.writeText($("codeOut").textContent);
+$("stopBtn").onclick = () => cleanup(true);
+
+/* ---------- VIEWER ---------- */
+$("connectBtn").onclick = async () => {
+  $("viewErr").textContent = "";
+  const code = $("codeIn").value.trim().toUpperCase();
+  if (code.length < 6) { $("viewErr").textContent = "Enter the full code."; return; }
+  try {
+    sessionRef = doc(db, "sessions", code);
+    const snap = await getDoc(sessionRef);
+    if (!snap.exists()) { $("viewErr").textContent = "No active session with that code."; return; }
+    if (snap.data().answer) { $("viewErr").textContent = "That session already has a viewer."; return; }
+    role = "viewer";
+    newPC();
+    pc.ontrack = e => { $("remote").srcObject = e.streams[0]; };
+    pc.ondatachannel = e => wireChat(e.channel);
+    pc.onicecandidate = e => { if (e.candidate) addDoc(collection(sessionRef, "viewerCandidates"), e.candidate.toJSON()); };
+
+    await pc.setRemoteDescription(snap.data().offer);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await updateDoc(sessionRef, { answer: { type: answer.type, sdp: answer.sdp }, viewerUid: uid });
+
+    unsubs.push(onSnapshot(collection(sessionRef, "hostCandidates"), s => {
+      s.docChanges().forEach(ch => { if (ch.type === "added") pc.addIceCandidate(new RTCIceCandidate(ch.doc.data())); });
+    }));
+    unsubs.push(onSnapshot(sessionRef, s => { if (!s.exists()) cleanup(false); })); // host ended session
+
+    $("home").classList.add("hidden"); $("stage").classList.remove("hidden");
+    $("stageInfo").textContent = "Waiting for host to approve…";
+    setStatus("Waiting for host approval…", "on");
+    pc.addEventListener("connectionstatechange", () => {
+      if (pc.connectionState === "connected") $("stageInfo").textContent = "Viewing remote screen (view-only)";
+    });
+  } catch(e){ console.error(e); $("viewErr").textContent = "Could not connect: " + e.message; cleanup(false); }
+};
+$("leaveBtn").onclick = () => cleanup(false);
+$("fsBtn").onclick = () => $("remote").requestFullscreen?.();
+$("chatBtn").onclick = () => $("chat").classList.toggle("hidden");
+$("codeIn").addEventListener("keydown", e => { if (e.key === "Enter") $("connectBtn").click(); });
+window.addEventListener("beforeunload", () => { if (role === "host" && sessionRef) deleteDoc(sessionRef); });
+</script>
+</body>
+</html>
